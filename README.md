@@ -20,11 +20,11 @@ Suivi des visites sur les maquettes prospects : qui ouvre, combien de temps, que
 
 ## Utilisation
 
-1. Dashboard → **Maquettes** → ajouter la maquette (prospect, nom, URL).
-2. Copier le code de suivi et le coller avant `</body>` dans chaque page de la maquette :
+2. Mettre le même code dans chaque page de chaque maquette, avant `</body>` :
    ```html
-   <script src="https://VOTRE-RADAR.vercel.app/t.js" data-site="ID" defer></script>
+   <script src="https://radar-xi-flax.vercel.app/t.js" defer></script>
    ```
+   La maquette est créée automatiquement dans Radar à la première visite (nom = titre de la page, rattachée par son adresse). Hôtes acceptés : `RADAR_ALLOWED_HOSTS` (par défaut vercel.app, netlify.app, webminds.dz). Les aperçus Vercel (`-projects.vercel.app`, `-git-`) sont ignorés.
 3. Créer un **lien par interlocuteur** (DG, marketing…) et envoyer ce lien, pas l'URL brute.
 4. Ouvrir la maquette soi-même avec le bouton **Ouvrir sans être compté** (ou `?wm_ignore=1`) pour ne pas fausser les stats. `?wm_ignore=0` réactive le suivi sur ce navigateur.
 

@@ -4,7 +4,7 @@
   var me = document.currentScript;
   if (!me || window.__wmRadar) return;
   window.__wmRadar = 1;
-  var SITE = me.getAttribute('data-site');
+  var SITE = me.getAttribute('data-site') || 'auto';
   var ORIGIN = new URL(me.src).origin;
   var API = ORIGIN + '/api/collect';
   var REPLAY = me.getAttribute('data-replay') !== 'off';
@@ -37,7 +37,7 @@
   push('pv', { title: document.title.slice(0, 120), ref: document.referrer.slice(0, 300), vw: innerWidth, vh: innerHeight });
 
   function payload(withRR, limit) {
-    var body = { site: SITE, sid: sid, vid: vid, r: r, pid: pid, seq: seq++, ev: q.splice(0, 400) };
+    var body = { site: SITE, o: location.origin, sid: sid, vid: vid, r: r, pid: pid, seq: seq++, ev: q.splice(0, 400) };
     if (withRR && rr.length) {
       var out = [], size = 0;
       while (rr.length) {

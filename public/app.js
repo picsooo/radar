@@ -202,7 +202,7 @@
     api('overview').then(function (d) { setLive(d.kpi.live); }).catch(function () {});
     api('site?id=' + encodeURIComponent(id)).then(function (d) {
       var s = d.site, origin = location.origin;
-      var snippet = '<script src="' + origin + '/t.js" data-site="' + s.id + '" defer></script>';
+      var snippet = '<script src="' + origin + '/t.js" defer></script>';
       tab = tab || 'visites';
       document.getElementById('main').innerHTML =
         '<a class="crumb" href="#/maquettes">Maquettes</a>' +
@@ -223,7 +223,7 @@
             '<span class="actions"><button class="btn sm" data-copy="' + esc(u) + '">Copier</button><button class="btn sm danger" data-dl="' + esc(l.id) + '" aria-label="Supprimer le lien">×</button></span></div>';
         }).join('') : '<p class="empty">Aucun lien personnalisé. Le lien générique fonctionne aussi, mais sans savoir qui l\'ouvre.</p>') + '</div>' +
         '<form class="link-add" id="la"><input type="text" name="label" placeholder="Interlocuteur, ex. : DG, Service marketing" required><button class="btn" type="submit">Créer le lien</button></form></section>' +
-        '<section class="panel"><h2>Installation</h2><p class="sub" style="margin:-6px 0 10px;font-size:13px">À coller avant &lt;/body&gt; dans chaque page de la maquette.</p>' +
+        '<section class="panel"><h2>Installation</h2><p class="sub" style="margin:-6px 0 10px;font-size:13px">Même code pour toutes les maquettes, avant &lt;/body&gt;. Une nouvelle maquette apparaît ici toute seule dès sa première visite.</p>' +
         '<code class="snip">' + esc(snippet) + '</code>' +
         '<div class="actions" style="margin-top:12px"><button class="btn sm" data-copy="' + esc(snippet) + '">Copier le code</button>' +
         '<a class="btn sm" href="' + esc(siteUrl(s, 'wm_ignore=1')) + '" target="_blank" rel="noopener" title="Ce navigateur ne sera plus compté sur cette maquette">Ouvrir sans être compté</a>' +

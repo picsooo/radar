@@ -18,8 +18,11 @@ export default async function handler(req, res) {
       if (!/^https?:\/\//.test(url)) url = 'https://' + url;
       try { new URL(url); } catch { return send(res, 400, { error: "L'URL de la maquette n'est pas valide." }); }
       const id = rid(8);
-      const [row] = await q('insert into sites(id,name,prospect,url,notify_emails) values($1,$2,$3,$4,$5) returning *',
-        [id, name, String(b.prospect || '').trim(), url.replace(/\/+$/, ''), String(b.notify_emails || '').trim()]);
+      const host = new URL(url).hostname.toLowerCase();
+      const [dup] = await q('select id from sites where host=$1', [host]);
+      if (dup) return send(res, 409, { error: 'Cette adresse est déjà suivie dans Radar.', id: dup.id });
+      const [row] = await q('insert into sites(id,name,prospect,url,notify_emails,host) values($1,$2,$3,$4,$5,$6) returning *',
+        [id, name, String(b.prospect || '').trim(), url.replace(/\/+$/, ''), String(b.notify_emails || '').trim(), host]);
       return send(res, 201, row);
     }
     if (req.method === 'PATCH') {
@@ -29,6 +32,7 @@ export default async function handler(req, res) {
         if (b[k] === undefined) continue;
         vals.push(t === 'bool' ? !!b[k] : String(b[k]).trim());
         sets.push(`${k}=$${vals.length}`);
+        if (k === 'url') { try { vals.push(new URL(String(b[k])).hostname.toLowerCase()); sets.push(`host=$${vals.length}`); } catch {} }
       }
       if (!sets.length) return send(res, 400, { error: 'Rien à modifier.' });
       const [row] = await q(`update sites set ${sets.join(',')} where id=$1 returning *`, vals);
