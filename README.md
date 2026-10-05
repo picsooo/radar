@@ -51,3 +51,8 @@ api/      fonctions serverless (collect, login, sites, links, overview, site, se
 lib/      base de données, auth, emails, score
 public/   dashboard (index.html, app.js, app.css), tracker t.js, rrweb (rr.js, player.js)
 ```
+
+
+## Branchement automatique des maquettes existantes
+
+Au premier démarrage, Radar insère la liste des maquettes déjà en ligne (`lib/seed.js`, adresse → nom de la société) et donne à chacune un lien « Prospect ». Les nouvelles maquettes s'ajoutent toutes seules à leur première visite. Pour en retirer ou en renommer une : fiche de la maquette → onglet Réglages.

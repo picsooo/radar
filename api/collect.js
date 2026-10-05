@@ -1,12 +1,13 @@
 import { q } from '../lib/db.js';
 import { readBody, send, cors, parseUA, origin, rid, BOT } from '../lib/http.js';
 import { notifyOpen } from '../lib/mail.js';
+import { ensureLinks } from '../lib/seed.js';
 
 const ID = /^[\w-]{4,64}$/;
 
 // Hôtes acceptés pour l'enregistrement automatique, et hôtes ignorés (aperçus Vercel, local)
 const ALLOW = (process.env.RADAR_ALLOWED_HOSTS || 'vercel.app,netlify.app,webminds.dz').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
-const IGNORE = (process.env.RADAR_IGNORE_HOSTS || '-projects.vercel.app,-git-,localhost,127.0.0.1').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+const IGNORE = (process.env.RADAR_IGNORE_HOSTS || '-git-,localhost,127.0.0.1').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 
 function hostOf(req, b) {
   let o = req.headers.origin || '';
@@ -17,6 +18,7 @@ function hostOf(req, b) {
 async function resolveSite(req, b, title) {
   const host = hostOf(req, b);
   if (!host || IGNORE.some((x) => host.includes(x))) return null;
+  if (/-[a-z0-9]{9}-[a-z0-9-]+\.vercel\.app$/.test(host)) return null; // URL d'un déploiement précis (aperçu)
   if (!ALLOW.some((d) => host === d || host.endsWith('.' + d))) return null;
   let [s] = await q('select * from sites where host=$1', [host]);
   if (!s) {
@@ -24,6 +26,7 @@ async function resolveSite(req, b, title) {
     await q(`insert into sites(id,name,prospect,url,host) values($1,$2,$2,$3,$4) on conflict (host) do nothing`,
       [rid(8), name, 'https://' + host, host]);
     [s] = await q('select * from sites where host=$1', [host]);
+    await ensureLinks();
   } else if (title && s.name === host) {
     const t = String(title).trim().slice(0, 80);
     [s] = await q('update sites set name=$2, prospect=$2 where id=$1 returning *', [s.id, t]);

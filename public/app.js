@@ -25,7 +25,7 @@
   function toast(msg) {
     var t = document.getElementById('toast');
     t.textContent = msg; t.classList.add('show');
-    clearTimeout(t._h); t._h = setTimeout(function () { t.classList.remove('show'); }, 2400);
+    clearTimeout(t._h); t._h = setTimeout(function () { t.classList.remove('show'); }, 2600);
   }
   function copy(text, msg) {
     (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function () { toast(msg || 'Copié'); }, function () {
@@ -37,11 +37,11 @@
     var s = Math.round((+ms || 0) / 1000);
     if (s < 60) return s + ' s';
     var m = Math.floor(s / 60), r = s % 60;
-    if (m < 60) return m + ' min ' + (r ? String(r).padStart(2, '0') : '');
+    if (m < 60) return m + ' min' + (r ? ' ' + String(r).padStart(2, '0') : '');
     return Math.floor(m / 60) + ' h ' + String(m % 60).padStart(2, '0');
   }
   function ago(d) {
-    if (!d) return '-';
+    if (!d) return 'Jamais';
     var s = (Date.now() - new Date(d).getTime()) / 1000;
     if (s < 60) return "à l'instant";
     if (s < 3600) return 'il y a ' + Math.floor(s / 60) + ' min';
@@ -50,6 +50,12 @@
     return new Date(d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + ' ' + new Date(d).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   }
   function place(s) { return [s.city, s.country].filter(Boolean).join(', ') || '-'; }
+  function pct(cur, prev) {
+    if (!prev) return cur ? '<span class="delta up">nouveau</span>' : '';
+    var d = Math.round((cur - prev) / prev * 100);
+    if (!d) return '<span class="delta flat">= </span>';
+    return '<span class="delta ' + (d > 0 ? 'up' : 'down') + '">' + (d > 0 ? '▲ ' : '▼ ') + Math.abs(d) + ' %</span>';
+  }
   function heatInfo(v) {
     if (v >= 75) return ['Brûlant', 'h-burn'];
     if (v >= 50) return ['Chaud', 'h-hot'];
@@ -60,14 +66,38 @@
     var i = heatInfo(v);
     return '<div class="heat" title="Score d\'intérêt ' + v + '/100"><div class="heat-bar"><i style="width:' + (100 - v) + '%"></i></div><span class="heat-lbl ' + i[1] + '">' + i[0] + '</span></div>';
   }
-  function siteUrl(site, extra) {
-    var u = site.url;
-    return u + (u.indexOf('?') > -1 ? '&' : '?') + extra;
+  function initials(name) {
+    var p = String(name || '?').trim().split(/\s+/);
+    return ((p[0] || '?')[0] + (p[1] ? p[1][0] : '')).toUpperCase();
   }
+  function avatarColor(seed) {
+    var h = 0; for (var i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+    return 'hsl(' + h + ',42%,38%)';
+  }
+  function sparkline(arr, live) {
+    var max = Math.max.apply(null, arr.concat([1]));
+    return '<div class="mini-spark' + (live ? ' live' : '') + '">' + arr.map(function (v, i) {
+      return '<span style="height:' + Math.max(8, v / max * 100) + '%" title="J-' + (13 - i) + ' : ' + v + '"></span>';
+    }).join('') + '</div>';
+  }
+  function siteUrl(host, extra) { return 'https://' + host + '/?' + extra; }
   function stop() {
     clearInterval(timer); timer = null;
     if (player) { try { player.pause && player.pause(); } catch (e) {} player = null; }
   }
+  function donut(items, colors) {
+    var total = items.reduce(function (s, x) { return s + x.n; }, 0) || 1;
+    var off = 0, segs = items.map(function (it, i) {
+      var frac = it.n / total, c = colors[i % colors.length];
+      var seg = c + ' ' + (off * 100).toFixed(2) + '% ' + ((off + frac) * 100).toFixed(2) + '%';
+      off += frac; return seg;
+    }).join(',');
+    return '<div class="donut-wrap"><div class="donut" style="background:conic-gradient(' + segs + ')"><div class="donut-hole"><b>' + total + '</b><span>visites</span></div></div>' +
+      '<ul class="legend">' + items.map(function (it, i) {
+        return '<li><i style="background:' + colors[i % colors.length] + '"></i>' + esc(it.label) + '<b>' + it.n + '</b></li>';
+      }).join('') + '</ul></div>';
+  }
+  var DCOL = ['#14213d', '#e8772e', '#2f8f63', '#7c9cc0', '#c7352f', '#b9781a'];
 
   // ---------- connexion ----------
   function login() {
@@ -90,7 +120,8 @@
     $app.innerHTML = '<div class="shell"><aside class="side">' +
       '<a class="brand" href="#/"><span class="brand-dot"></span>Webminds Radar</a>' +
       '<nav class="nav"><a href="#/" class="' + (active === 'home' ? 'on' : '') + '">Vue d\'ensemble</a>' +
-      '<a href="#/maquettes" class="' + (active === 'sites' ? 'on' : '') + '">Maquettes</a></nav>' +
+      '<a href="#/maquettes" class="' + (active === 'sites' ? 'on' : '') + '">Maquettes</a>' +
+      '<a href="#/install" class="' + (active === 'install' ? 'on' : '') + '">Installation</a></nav>' +
       '<div class="livebox"><span class="pulse off" id="lp"></span>En ce moment<strong id="lc">-</strong>' +
       '<button class="logout" id="lo" type="button">Se déconnecter</button></div></aside>' +
       '<main class="main" id="main">' + inner + '</main></div>';
@@ -103,27 +134,11 @@
     lc.textContent = n ? n + (n > 1 ? ' visiteurs' : ' visiteur') : 'Personne';
     lp.className = 'pulse' + (n ? '' : ' off');
   }
-  function sessRow(s, withSite) {
-    return '<tr class="click" data-go="#/s/' + esc(s.id) + '">' +
-      '<td>' + ago(s.started_at) + '</td>' +
-      (withSite ? '<td><span class="nm">' + esc(s.prospect || s.site_name) + '</span></td>' : '') +
-      '<td>' + (s.link_label ? '<span class="tag">' + esc(s.link_label) + '</span>' : '<span class="muted">Générique</span>') +
-      (s.visit_no == 1 ? ' <span class="tag new">1re visite</span>' : ' <span class="muted">' + s.visit_no + 'e</span>') + '</td>' +
-      '<td>' + esc(place(s)) + '</td>' +
-      '<td>' + esc(s.device) + '<span class="muted"> · ' + esc(s.os) + '</span></td>' +
-      '<td class="r">' + dur(s.active_ms) + '</td>' +
-      '<td class="r">' + s.pages + '</td>' +
-      '<td class="r">' + s.clicks + (s.rage ? ' <span class="tag rage" title="Clics répétés (frustration)">' + s.rage + '</span>' : '') + '</td>' +
-      '<td class="r">' + (s.max_scroll || 0) + ' %</td></tr>';
-  }
-  function sessTable(list, withSite) {
-    if (!list.length) return '<p class="empty" style="padding:0 20px 18px">Aucune visite pour le moment. Envoyez le lien au prospect : vous serez prévenu par email dès qu\'il l\'ouvre.</p>';
-    return '<div class="tw"><table><thead><tr><th>Quand</th>' + (withSite ? '<th>Prospect</th>' : '') +
-      '<th>Lien</th><th>Lieu</th><th>Appareil</th><th class="r">Temps actif</th><th class="r">Pages</th><th class="r">Clics</th><th class="r">Scroll</th></tr></thead><tbody>' +
-      list.map(function (s) { return sessRow(s, withSite); }).join('') + '</tbody></table></div>';
-  }
   function bindRows() {
-    document.querySelectorAll('[data-go]').forEach(function (el) { el.onclick = function () { location.hash = el.getAttribute('data-go'); }; });
+    document.querySelectorAll('[data-go]').forEach(function (el) { el.onclick = function (e) { if (e.target.closest('button,a')) return; location.hash = el.getAttribute('data-go'); }; });
+  }
+  function avatar(name, seed) {
+    return '<span class="avatar" style="background:' + avatarColor(seed || name) + '">' + esc(initials(name)) + '</span>';
   }
 
   // ---------- vue d'ensemble ----------
@@ -133,67 +148,124 @@
       api('overview').then(function (d) {
         var k = d.kpi; setLive(k.live);
         var max = Math.max.apply(null, d.days.map(function (x) { return x.visits; }).concat([1]));
-        var spark = d.days.map(function (x, i) {
-          return '<div class="' + (i === d.days.length - 1 ? 'today' : '') + '" style="height:' + Math.max(4, x.visits / max * 100) + '%" title="' + x.day + ' : ' + x.visits + ' visite(s)"></div>';
+        var bars = d.days.map(function (x, i) {
+          var dd = new Date(x.day + 'T00:00');
+          return '<div class="bar ' + (i === d.days.length - 1 ? 'today' : '') + '" style="height:' + Math.max(3, x.visits / max * 100) + '%">' +
+            '<span class="bar-tip">' + x.visits + ' · ' + dd.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) + '</span></div>';
         }).join('');
         document.getElementById('main').innerHTML =
-          '<div class="head"><div><h1>Vue d\'ensemble</h1><p class="sub">' + d.sites + ' maquette(s) suivie(s). Actualisé automatiquement.</p></div>' +
-          '<a class="btn pri" href="#/maquettes">Ajouter une maquette</a></div>' +
-          '<div class="kpis">' +
-          '<div class="kpi"><b>' + k.today + '</b><span>Visites aujourd\'hui</span></div>' +
-          '<div class="kpi"><b>' + k.week + '</b><span>Visites sur 7 jours</span></div>' +
-          '<div class="kpi"><b>' + k.visitors + '</b><span>Appareils différents (7 j)</span></div>' +
-          '<div class="kpi"><b>' + dur(k.avg_ms) + '</b><span>Temps actif moyen</span></div>' +
-          '<div class="kpi"><b>' + k.live + '</b><span>En ce moment</span></div></div>' +
-          '<div class="grid"><section class="panel"><h2>Prospects les plus intéressés</h2>' +
-          (d.hot.length ? d.hot.map(function (s) {
-            return '<a class="hot-row" href="#/m/' + esc(s.id) + '"><span class="nm">' + esc(s.prospect || s.name) + '<small>' + esc(s.name) + '</small></span>' +
-              heat(s.heat) + '<span class="num">' + s.visits + ' visite' + (s.visits > 1 ? 's' : '') + '</span><span class="num">' + ago(s.last_visit) + '</span></a>';
-          }).join('') : '<p class="empty">Le classement apparaît dès les premières visites.</p>') +
-          '</section><div style="display:flex;flex-direction:column;gap:18px">' +
-          '<section class="panel"><h2>En direct</h2>' +
-          (d.live.length ? d.live.map(function (s) {
-            return '<a class="live-row" href="#/s/' + esc(s.id) + '"><span class="pulse"></span><div><b>' + esc(s.prospect || s.site_name) + '</b>' +
-              '<small>' + esc(s.link_label || 'Lien générique') + ' · ' + esc(place(s)) + ' · ' + dur(s.active_ms) + '</small></div></a>';
-          }).join('') : '<p class="empty">Personne sur les maquettes en ce moment.</p>') + '</section>' +
-          '<section class="panel"><h2>Visites sur 14 jours</h2><div class="spark">' + spark + '</div>' +
-          '<div class="spark-lbl"><span>il y a 14 j</span><span>aujourd\'hui</span></div></section></div></div>' +
-          '<section class="panel flush"><h2>Dernières visites</h2>' + sessTable(d.recent, true) + '</section>';
+          '<div class="head"><div><h1>Vue d\'ensemble</h1><p class="sub">' + k.total + ' maquette(s) suivie(s)' +
+          (k.never ? ' · ' + k.never + ' pas encore visitée(s)' : '') + ' · mise à jour automatique</p></div>' +
+          '<a class="btn" href="#/install">Code d\'installation</a></div>' +
+          '<div class="cards">' +
+          kpiCard('Visites aujourd\'hui', k.today, '') +
+          kpiCard('Visites (7 j)', k.week, pct(k.week, k.prev_week)) +
+          kpiCard('Maquettes visitées (7 j)', k.active_sites, pct(k.active_sites, k.prev_active_sites)) +
+          kpiCard('Temps actif moyen', dur(k.avg_ms), pct(k.avg_ms, k.prev_avg_ms)) +
+          kpiCard('En ce moment', k.live, '', k.live ? 'live' : '') + '</div>' +
+          '<div class="grid-2">' +
+          '<section class="panel"><div class="panel-h"><h2>Activité · 30 jours</h2></div><div class="chart">' + bars + '</div>' +
+          '<div class="chart-x"><span>il y a 30 j</span><span>aujourd\'hui</span></div></section>' +
+          '<section class="panel"><div class="panel-h"><h2>En direct</h2>' + (k.live ? '<span class="live-badge">' + k.live + '</span>' : '') + '</div>' +
+          (d.live.length ? '<div class="live-list">' + d.live.map(function (s) {
+            return '<a class="live-item" href="#/s/' + esc(s.id) + '">' + avatar(s.site_name, s.site_id) + '<div><b>' + esc(s.site_name) + '</b>' +
+              '<small>' + esc(s.link_label || 'Lien générique') + ' · ' + esc(place(s)) + ' · ' + dur(s.active_ms) + '</small></div><span class="pulse"></span></a>';
+          }).join('') + '</div>' : '<p class="empty">Personne sur les maquettes en ce moment. La page se met à jour toute seule.</p>') + '</section></div>' +
+          '<div class="grid-2">' +
+          '<section class="panel"><div class="panel-h"><h2>Prospects les plus chauds</h2><a class="link" href="#/maquettes">Tout voir</a></div>' +
+          (d.hot.length ? '<div class="hot-list">' + d.hot.map(function (s, i) {
+            return '<a class="hot-card" href="#/m/' + esc(s.id) + '"><span class="rank">' + (i + 1) + '</span>' + avatar(s.name, s.id) +
+              '<div class="hot-main"><b>' + esc(s.name) + '</b>' + heat(s.heat) + '</div>' +
+              '<div class="hot-nums"><span>' + s.visits + ' visite' + (s.visits > 1 ? 's' : '') + '</span><small>' + ago(s.last_visit) + '</small></div></a>';
+          }).join('') + '</div>' : '<p class="empty">Le classement apparaît dès les premières visites.</p>') + '</section>' +
+          '<div class="stack">' +
+          '<section class="panel"><div class="panel-h"><h2>Appareils</h2></div>' + (d.devices.length ? donut(d.devices, DCOL) : '<p class="empty">—</p>') + '</section>' +
+          '<section class="panel"><div class="panel-h"><h2>Villes</h2></div>' +
+          (d.cities.length ? '<ul class="bar-list">' + barList(d.cities) + '</ul>' : '<p class="empty">—</p>') + '</section></div></div>' +
+          '<section class="panel flush"><div class="panel-h pad"><h2>Dernières visites</h2></div>' + recentTable(d.recent) + '</section>';
         bindRows();
       }).catch(function (e) { if (token()) document.getElementById('main').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
     }
     load(); timer = setInterval(load, 15000);
   }
+  function kpiCard(label, val, delta, cls) {
+    return '<div class="card ' + (cls || '') + '"><span class="card-label">' + label + '</span><b class="card-val">' + val + (cls === 'live' ? '<i class="dot"></i>' : '') + '</b>' + (delta ? '<span class="card-delta">' + delta + '</span>' : '') + '</div>';
+  }
+  function barList(items) {
+    var max = Math.max.apply(null, items.map(function (x) { return x.n; }).concat([1]));
+    return items.map(function (x) {
+      return '<li><span class="bl-label">' + esc(x.label) + (x.country && x.label !== 'Inconnue' ? ' <small>' + esc(x.country) + '</small>' : '') + '</span>' +
+        '<span class="bl-track"><i style="width:' + (x.n / max * 100) + '%"></i></span><b>' + x.n + '</b></li>';
+    }).join('');
+  }
+  function recentTable(list) {
+    if (!list.length) return '<p class="empty" style="padding:0 22px 20px">Aucune visite pour l\'instant. Dès qu\'un prospect ouvre sa maquette, elle apparaît ici et vous recevez un email.</p>';
+    return '<div class="tw"><table><thead><tr><th>Quand</th><th>Maquette</th><th>Lien</th><th>Lieu</th><th>Appareil</th><th class="r">Temps</th><th class="r">Pages</th><th class="r">Scroll</th></tr></thead><tbody>' +
+      list.map(function (s) {
+        return '<tr class="click" data-go="#/s/' + esc(s.id) + '"><td>' + ago(s.started_at) + '</td>' +
+          '<td><span class="cell-name">' + avatar(s.site_name, s.site_id) + esc(s.site_name) + '</span></td>' +
+          '<td>' + (s.link_label ? '<span class="tag">' + esc(s.link_label) + '</span>' : '<span class="muted">Générique</span>') + '</td>' +
+          '<td>' + esc(place(s)) + '</td><td>' + esc(s.device) + '</td>' +
+          '<td class="r">' + dur(s.active_ms) + '</td><td class="r">' + s.pages + '</td><td class="r">' + (s.max_scroll || 0) + ' %</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
 
-  // ---------- maquettes ----------
+  // ---------- maquettes (grille de cartes) ----------
   function sites() {
-    shell('sites', '<div class="head"><div><h1>Maquettes</h1><p class="sub">Ajoutez une maquette, puis collez le code de suivi dans ses pages.</p></div></div>' +
-      '<section class="panel" style="margin-bottom:18px"><h2>Nouvelle maquette</h2><form class="form" id="nf">' +
-      '<label class="f">Prospect<input type="text" name="prospect" placeholder="Ex. : Cophyd" required></label>' +
-      '<label class="f">Nom de la maquette<input type="text" name="name" placeholder="Ex. : Site corporate V2" required></label>' +
-      '<label class="f">Adresse de la maquette<input type="text" name="url" placeholder="https://cophydd.vercel.app" required></label>' +
-      '<label class="f">Emails à prévenir (en plus)<input type="text" name="notify_emails" placeholder="nihal@…, yasmine@…"></label>' +
-      '<button class="btn pri" type="submit">Ajouter</button></form></section>' +
-      '<section class="panel flush" id="list"><div class="loading" style="padding:20px">Chargement…</div></section>');
-    document.getElementById('nf').onsubmit = function (e) {
-      e.preventDefault();
-      var f = new FormData(e.target), b = {};
-      f.forEach(function (v, k) { b[k] = v; });
-      api('sites', { method: 'POST', body: b }).then(function (s) { toast('Maquette ajoutée'); location.hash = '#/m/' + s.id; })
-        .catch(function (err) { toast(err.message); });
-    };
+    shell('sites', '<div class="head"><div><h1>Maquettes</h1><p class="sub">Chaque maquette s\'ajoute toute seule dès sa première visite.</p></div>' +
+      '<div class="toolbar"><input type="search" id="q" placeholder="Rechercher une maquette…"><select id="sort"><option value="heat">Trier : intérêt</option><option value="recent">Plus récentes</option><option value="visits">Plus de visites</option><option value="name">Nom</option></select></div></div>' +
+      '<div id="grid" class="site-grid"><div class="loading">Chargement…</div></div>');
     api('overview').then(function (d) { setLive(d.kpi.live); }).catch(function () {});
     api('sites').then(function (list) {
-      var el = document.getElementById('list');
-      if (!list.length) { el.innerHTML = '<p class="empty" style="padding:18px 20px">Aucune maquette. Ajoutez la première avec le formulaire ci-dessus.</p>'; return; }
-      el.innerHTML = '<div class="tw"><table><thead><tr><th>Prospect</th><th>Intérêt</th><th class="r">Visites (30 j)</th><th class="r">Appareils</th><th class="r">Temps total</th><th>Dernière visite</th><th>Notifications</th></tr></thead><tbody>' +
-        list.map(function (s) {
-          return '<tr class="click" data-go="#/m/' + esc(s.id) + '"><td><span class="nm">' + esc(s.prospect || s.name) + '<small>' + esc(s.name) + '</small></span></td>' +
-            '<td>' + heat(s.heat) + '</td><td class="r">' + s.visits + '</td><td class="r">' + s.visitors + '</td>' +
-            '<td class="r">' + dur(s.active_ms) + '</td><td>' + ago(s.last_visit) + '</td><td>' + (s.notify ? 'Actives' : '<span class="muted">Coupées</span>') + '</td></tr>';
-        }).join('') + '</tbody></table></div>';
-      bindRows();
-    }).catch(function (e) { toast(e.message); });
+      function draw() {
+        var qv = (document.getElementById('q').value || '').toLowerCase().trim();
+        var sort = document.getElementById('sort').value;
+        var rows = list.filter(function (s) { return !qv || (s.name + ' ' + s.host).toLowerCase().indexOf(qv) > -1; });
+        rows.sort(function (a, b) {
+          if (sort === 'name') return a.name.localeCompare(b.name);
+          if (sort === 'visits') return b.visits - a.visits;
+          if (sort === 'recent') return new Date(b.last_seen || 0) - new Date(a.last_seen || 0);
+          return b.heat - a.heat || b.visits - a.visits;
+        });
+        var g = document.getElementById('grid');
+        if (!rows.length) { g.innerHTML = '<p class="empty">Aucune maquette ne correspond.</p>'; return; }
+        g.className = 'site-grid';
+        g.innerHTML = rows.map(function (s) {
+          var hi = heatInfo(s.heat);
+          return '<a class="site-card" href="#/m/' + esc(s.id) + '">' +
+            '<div class="sc-top">' + avatar(s.name, s.id) +
+            '<div class="sc-id"><b>' + esc(s.name) + '</b><small>' + esc(s.host) + '</small></div>' +
+            (s.live ? '<span class="pulse" title="En ce moment"></span>' : '') + '</div>' +
+            '<div class="sc-heat"><span class="score ' + hi[1] + '">' + s.heat + '</span>' + heat(s.heat) + '</div>' +
+            '<div class="sc-stats"><div><b>' + s.visits + '</b><span>visites 30j</span></div>' +
+            '<div><b>' + s.visitors + '</b><span>appareils</span></div>' +
+            '<div><b>' + dur(s.active_ms) + '</b><span>temps actif</span></div></div>' +
+            sparkline(s.spark, s.live) +
+            '<div class="sc-foot"><span>' + (s.visits ? ago(s.last_visit) : 'Pas encore visitée') + '</span>' +
+            (s.notify ? '' : '<span class="muted">🔕</span>') + '</div></a>';
+        }).join('');
+        bindRows();
+      }
+      document.getElementById('q').oninput = draw;
+      document.getElementById('sort').onchange = draw;
+      draw();
+    }).catch(function (e) { document.getElementById('grid').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
+  }
+
+  // ---------- installation ----------
+  function install() {
+    var snippet = '<script src="' + location.origin + '/t.js" defer></scr' + 'ipt>';
+    shell('install', '<div class="head"><div><h1>Installation</h1><p class="sub">Un seul code, le même pour toutes les maquettes.</p></div></div>' +
+      '<section class="panel"><div class="panel-h"><h2>Code de suivi</h2></div>' +
+      '<p class="sub" style="margin:-4px 0 12px">À coller avant <code>&lt;/body&gt;</code> dans chaque page de chaque maquette, après le script de protection.</p>' +
+      '<code class="snip">' + esc(snippet) + '</code>' +
+      '<div class="actions" style="margin-top:14px"><button class="btn pri" id="cp">Copier le code</button></div></section>' +
+      '<section class="panel"><div class="panel-h"><h2>Comment ça marche</h2></div><ul class="steps">' +
+      '<li><b>Rien à créer ici.</b> La maquette apparaît toute seule dans Radar dès sa première visite — son nom vient du titre de la page.</li>' +
+      '<li><b>Liens par interlocuteur.</b> Chaque maquette a déjà un lien « Prospect ». Ajoutez-en un par personne (DG, marketing…) dans sa fiche pour savoir qui ouvre.</li>' +
+      '<li><b>Visite test.</b> Pour vérifier une maquette sans fausser les chiffres, ouvrez-la avec <code>?wm_ignore=1</code>.</li>' +
+      '<li><b>Email automatique.</b> À chaque première ouverture, un email part vers l\'équipe.</li></ul></section>');
+    document.getElementById('cp').onclick = function () { copy(snippet, 'Code copié'); };
   }
 
   // ---------- détail maquette ----------
@@ -201,79 +273,120 @@
     shell('sites', '<div class="loading">Chargement…</div>');
     api('overview').then(function (d) { setLive(d.kpi.live); }).catch(function () {});
     api('site?id=' + encodeURIComponent(id)).then(function (d) {
-      var s = d.site, origin = location.origin;
-      var snippet = '<script src="' + origin + '/t.js" defer></script>';
-      tab = tab || 'visites';
+      var s = d.site;
+      tab = tab || 'apercu';
+      var max = Math.max.apply(null, d.days.map(function (x) { return x.visits; }).concat([1]));
+      var bars = d.days.map(function (x, i) {
+        return '<div class="bar ' + (i === d.days.length - 1 ? 'today' : '') + '" style="height:' + Math.max(3, x.visits / max * 100) + '%"><span class="bar-tip">' + x.visits + '</span></div>';
+      }).join('');
       document.getElementById('main').innerHTML =
-        '<a class="crumb" href="#/maquettes">Maquettes</a>' +
-        '<div class="head"><div><h1>' + esc(s.prospect || s.name) + '</h1><p class="sub">' + esc(s.name) + ' · <a href="' + esc(s.url) + '" target="_blank" rel="noopener">' + esc(s.url.replace(/^https?:\/\//, '')) + '</a></p></div>' +
-        '<div class="big-heat"><span class="score">' + s.heat + '</span>' + heat(s.heat) + '</div></div>' +
-        '<div class="kpis"><div class="kpi"><b>' + s.visits + '</b><span>Visites (30 j)</span></div>' +
-        '<div class="kpi"><b>' + s.visitors + '</b><span>Appareils différents</span></div>' +
-        '<div class="kpi"><b>' + dur(s.active_ms) + '</b><span>Temps actif total</span></div>' +
-        '<div class="kpi"><b>' + s.clicks + '</b><span>Clics</span></div>' +
-        '<div class="kpi"><b>' + ago(s.last_visit) + '</b><span>Dernière visite</span></div></div>' +
-        '<div class="grid"><section class="panel"><h2>Liens prospects</h2>' +
-        '<p class="sub" style="margin:-6px 0 10px;font-size:13px">Un lien par interlocuteur : vous saurez qui ouvre, et si le lien circule en interne.</p>' +
-        '<div class="links">' + (d.links.length ? d.links.map(function (l) {
-          var u = siteUrl(s, 'r=' + l.id);
-          return '<div class="link-row"><b>' + esc(l.label) + '</b><span class="link-url">' + esc(u) + '</span>' +
-            '<span class="num">' + l.visits + ' visite' + (l.visits > 1 ? 's' : '') + '</span>' +
-            '<span class="num">' + (l.visitors > 1 ? '<span class="tag new" title="Le lien a été ouvert sur plusieurs appareils">partagé ×' + l.visitors + '</span>' : ago(l.last_visit)) + '</span>' +
-            '<span class="actions"><button class="btn sm" data-copy="' + esc(u) + '">Copier</button><button class="btn sm danger" data-dl="' + esc(l.id) + '" aria-label="Supprimer le lien">×</button></span></div>';
-        }).join('') : '<p class="empty">Aucun lien personnalisé. Le lien générique fonctionne aussi, mais sans savoir qui l\'ouvre.</p>') + '</div>' +
-        '<form class="link-add" id="la"><input type="text" name="label" placeholder="Interlocuteur, ex. : DG, Service marketing" required><button class="btn" type="submit">Créer le lien</button></form></section>' +
-        '<section class="panel"><h2>Installation</h2><p class="sub" style="margin:-6px 0 10px;font-size:13px">Même code pour toutes les maquettes, avant &lt;/body&gt;. Une nouvelle maquette apparaît ici toute seule dès sa première visite.</p>' +
-        '<code class="snip">' + esc(snippet) + '</code>' +
-        '<div class="actions" style="margin-top:12px"><button class="btn sm" data-copy="' + esc(snippet) + '">Copier le code</button>' +
-        '<a class="btn sm" href="' + esc(siteUrl(s, 'wm_ignore=1')) + '" target="_blank" rel="noopener" title="Ce navigateur ne sera plus compté sur cette maquette">Ouvrir sans être compté</a>' +
-        '<button class="btn sm" id="nt">' + (s.notify ? 'Couper les emails' : 'Activer les emails') + '</button>' +
-        '<button class="btn sm danger" id="del">Supprimer</button></div>' +
-        (s.notify_emails ? '<p class="sub" style="font-size:12.5px">Emails prévenus en plus : ' + esc(s.notify_emails) + '</p>' : '') +
-        '</section></div>' +
-        '<div class="tabs" role="tablist">' + [['visites', 'Visites'], ['heatmap', 'Heatmap'], ['pages', 'Pages et clics']].map(function (t) {
+        '<a class="crumb" href="#/maquettes">← Maquettes</a>' +
+        '<div class="site-hero"><div class="sh-left">' + avatar(s.name, s.id) +
+        '<div><h1>' + esc(s.name) + '</h1><p class="sub"><a href="https://' + esc(s.host) + '" target="_blank" rel="noopener">' + esc(s.host) + '</a>' +
+        (s.live ? ' · <span class="live-badge sm"><span class="pulse"></span> en ce moment</span>' : '') + '</p></div></div>' +
+        '<div class="sh-heat"><span class="score big ' + heatInfo(s.heat)[1] + '">' + s.heat + '</span><span class="score-sub">' + heatInfo(s.heat)[0] + '<small>score d\'intérêt</small></span></div></div>' +
+        '<div class="cards">' +
+        kpiCard('Visites (30 j)', s.visits, '') + kpiCard('Appareils différents', s.visitors, '') +
+        kpiCard('Temps actif total', dur(s.active_ms), '') + kpiCard('Scroll max', (s.max_scroll || 0) + ' %', '') +
+        kpiCard('Dernière visite', s.visits ? ago(s.last_visit) : '—', '') + '</div>' +
+        '<div class="tabs" role="tablist">' + [['apercu', 'Aperçu'], ['visites', 'Visites'], ['liens', 'Liens'], ['heatmap', 'Heatmap'], ['pages', 'Pages & clics'], ['reglages', 'Réglages']].map(function (t) {
           return '<button role="tab" data-tab="' + t[0] + '" class="' + (tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>';
         }).join('') + '</div><div id="tab"></div>';
 
-      document.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copy(b.getAttribute('data-copy'), 'Copié dans le presse-papiers'); }; });
-      document.querySelectorAll('[data-dl]').forEach(function (b) {
-        b.onclick = function () { if (confirm('Supprimer ce lien ? Les visites déjà enregistrées restent.')) api('links?id=' + b.getAttribute('data-dl'), { method: 'DELETE' }).then(function () { site(id, tab); }); };
-      });
-      document.getElementById('la').onsubmit = function (e) {
-        e.preventDefault();
-        api('links', { method: 'POST', body: { site_id: id, label: e.target.label.value } }).then(function (l) {
-          copy(siteUrl(s, 'r=' + l.id), 'Lien créé et copié'); site(id, tab);
-        }).catch(function (err) { toast(err.message); });
-      };
-      document.getElementById('nt').onclick = function () {
-        api('sites', { method: 'PATCH', body: { id: id, notify: !s.notify } }).then(function () { toast(s.notify ? 'Emails coupés' : 'Emails activés'); site(id, tab); });
-      };
-      document.getElementById('del').onclick = function () {
-        if (confirm('Supprimer la maquette « ' + (s.prospect || s.name) + ' » et toutes ses visites ? Action définitive.'))
-          api('sites?id=' + id, { method: 'DELETE' }).then(function () { location.hash = '#/maquettes'; });
-      };
       document.querySelectorAll('[data-tab]').forEach(function (b) {
         b.onclick = function () { history.replaceState(null, '', '#/m/' + id + '/' + b.getAttribute('data-tab')); site(id, b.getAttribute('data-tab')); };
       });
-
       var el = document.getElementById('tab');
-      if (tab === 'visites') { el.innerHTML = '<section class="panel flush">' + sessTable(d.sessions, false) + '</section>'; bindRows(); }
+      if (tab === 'apercu') apercuTab(el, d, bars);
+      if (tab === 'visites') { el.innerHTML = '<section class="panel flush">' + sessTable(d.sessions) + '</section>'; bindRows(); }
+      if (tab === 'liens') liensTab(el, s, d.links);
       if (tab === 'pages') pagesTab(el, d);
       if (tab === 'heatmap') heatmapTab(el, s, d.pages);
+      if (tab === 'reglages') reglagesTab(el, s);
     }).catch(function (e) { document.getElementById('main').innerHTML = '<p class="err">' + esc(e.message) + '</p>'; });
   }
 
+  function apercuTab(el, d, bars) {
+    el.innerHTML = '<div class="grid-2">' +
+      '<section class="panel"><div class="panel-h"><h2>Activité · 30 jours</h2></div><div class="chart">' + bars + '</div></section>' +
+      '<div class="stack">' +
+      '<section class="panel"><div class="panel-h"><h2>Appareils</h2></div>' + (d.devices.length ? donut(d.devices, DCOL) : '<p class="empty">—</p>') + '</section>' +
+      '<section class="panel"><div class="panel-h"><h2>Villes</h2></div>' + (d.cities.length ? '<ul class="bar-list">' + barList(d.cities) + '</ul>' : '<p class="empty">—</p>') + '</section>' +
+      '</div></div>' +
+      '<section class="panel flush"><div class="panel-h pad"><h2>Dernières visites</h2></div>' + sessTable(d.sessions.slice(0, 8)) + '</section>';
+    bindRows();
+  }
+
+  function sessTable(list) {
+    if (!list.length) return '<p class="empty" style="padding:0 22px 20px">Aucune visite pour le moment. Envoyez le lien au prospect : vous serez prévenu dès qu\'il l\'ouvre.</p>';
+    return '<div class="tw"><table><thead><tr><th>Quand</th><th>Visiteur</th><th>Lien</th><th>Lieu</th><th>Appareil</th><th class="r">Temps</th><th class="r">Pages</th><th class="r">Clics</th><th class="r">Scroll</th></tr></thead><tbody>' +
+      list.map(function (s) {
+        return '<tr class="click" data-go="#/s/' + esc(s.id) + '"><td>' + ago(s.started_at) + '</td>' +
+          '<td><span class="cell-name">' + avatar('V' + s.visitor_no, s.visitor_id) + 'Visiteur ' + s.visitor_no + '</span></td>' +
+          '<td>' + (s.link_label ? '<span class="tag">' + esc(s.link_label) + '</span>' : '<span class="muted">Générique</span>') + '</td>' +
+          '<td>' + esc(place(s)) + '</td><td>' + esc(s.device) + '<span class="muted"> · ' + esc(s.os) + '</span></td>' +
+          '<td class="r">' + dur(s.active_ms) + '</td><td class="r">' + s.pages + '</td>' +
+          '<td class="r">' + s.clicks + (s.rage ? ' <span class="tag rage" title="Clics répétés">' + s.rage + '</span>' : '') + '</td>' +
+          '<td class="r">' + (s.max_scroll || 0) + ' %</td></tr>';
+      }).join('') + '</tbody></table></div>';
+  }
+
+  function liensTab(el, s, links) {
+    el.innerHTML = '<section class="panel"><div class="panel-h"><h2>Liens par interlocuteur</h2></div>' +
+      '<p class="sub" style="margin:-4px 0 14px">Un lien par personne : vous voyez qui ouvre, et si le lien circule en interne. Chaque maquette a déjà un lien « Prospect ».</p>' +
+      '<div class="links">' + links.map(function (l) {
+        var u = siteUrl(s.host, 'r=' + l.id);
+        return '<div class="link-card"><div class="lc-main">' + avatar(l.label, l.id) + '<div><b>' + esc(l.label) + '</b><span class="link-url">' + esc(u) + '</span></div></div>' +
+          '<div class="lc-nums"><span>' + l.visits + ' visite' + (l.visits > 1 ? 's' : '') + '</span>' +
+          (l.visitors > 1 ? '<span class="tag new" title="Ouvert sur plusieurs appareils">partagé ×' + l.visitors + '</span>' : '<small>' + (l.visits ? ago(l.last_visit) : 'jamais') + '</small>') + '</div>' +
+          '<div class="lc-act"><button class="btn sm pri" data-copy="' + esc(u) + '">Copier</button>' +
+          (l.label === 'Prospect' && links.length === 1 ? '' : '<button class="btn sm danger" data-dl="' + esc(l.id) + '">Supprimer</button>') + '</div></div>';
+      }).join('') + '</div>' +
+      '<form class="link-add" id="la"><input type="text" name="label" placeholder="Nouvel interlocuteur, ex. : Directeur, Service marketing" required maxlength="40"><button class="btn pri" type="submit">Créer le lien</button></form></section>';
+    el.querySelectorAll('[data-copy]').forEach(function (b) { b.onclick = function () { copy(b.getAttribute('data-copy'), 'Lien copié'); }; });
+    el.querySelectorAll('[data-dl]').forEach(function (b) {
+      b.onclick = function () { if (confirm('Supprimer ce lien ? Les visites déjà enregistrées restent.')) api('links?id=' + b.getAttribute('data-dl'), { method: 'DELETE' }).then(function () { site(s.id, 'liens'); }); };
+    });
+    document.getElementById('la').onsubmit = function (e) {
+      e.preventDefault();
+      api('links', { method: 'POST', body: { site_id: s.id, label: e.target.label.value } }).then(function (l) {
+        copy(siteUrl(s.host, 'r=' + l.id), 'Lien créé et copié'); site(s.id, 'liens');
+      }).catch(function (err) { toast(err.message); });
+    };
+  }
+
   function pagesTab(el, d) {
-    el.innerHTML = '<div class="grid"><section class="panel flush"><h2>Pages consultées</h2>' +
+    el.innerHTML = '<div class="grid-2"><section class="panel flush"><div class="panel-h pad"><h2>Pages consultées</h2></div>' +
       (d.pages.length ? '<div class="tw"><table><thead><tr><th>Page</th><th class="r">Vues</th><th class="r">Visites</th><th class="r">Scroll moyen</th></tr></thead><tbody>' +
-        d.pages.map(function (p) { return '<tr><td>' + esc(p.path) + '</td><td class="r">' + p.views + '</td><td class="r">' + p.sessions + '</td><td class="r">' + (p.avg_scroll == null ? '-' : p.avg_scroll + ' %') + '</td></tr>'; }).join('') +
-        '</tbody></table></div>' : '<p class="empty" style="padding:0 20px 18px">Pas encore de données.</p>') + '</section>' +
-      '<section class="panel flush"><h2>Éléments les plus cliqués</h2>' +
+        d.pages.map(function (p) { return '<tr><td>' + esc(p.path) + '</td><td class="r">' + p.views + '</td><td class="r">' + p.sessions + '</td><td class="r">' + (p.avg_scroll == null ? '—' : p.avg_scroll + ' %') + '</td></tr>'; }).join('') +
+        '</tbody></table></div>' : '<p class="empty" style="padding:0 22px 20px">Pas encore de données.</p>') + '</section>' +
+      '<section class="panel flush"><div class="panel-h pad"><h2>Éléments les plus cliqués</h2></div>' +
       (d.clicks.length ? '<div class="tw"><table><thead><tr><th>Élément</th><th>Page</th><th class="r">Clics</th></tr></thead><tbody>' +
         d.clicks.map(function (c) {
-          return '<tr><td>' + esc((c.target || '(sans texte)').slice(0, 60)) + (c.href ? '<br><span class="muted" style="font-size:12px">' + esc(c.href.slice(0, 60)) + '</span>' : '') + '</td>' +
-            '<td class="muted">' + esc(c.path) + '</td><td class="r">' + c.n + (c.rage ? ' <span class="tag rage" title="Clics répétés">' + c.rage + '</span>' : '') + '</td></tr>';
-        }).join('') + '</tbody></table></div>' : '<p class="empty" style="padding:0 20px 18px">Pas encore de clics.</p>') + '</section></div>';
+          return '<tr><td>' + esc((c.target || '(sans texte)').slice(0, 60)) + (c.href ? '<br><span class="muted" style="font-size:12px">' + esc(c.href.slice(0, 56)) + '</span>' : '') + '</td>' +
+            '<td class="muted">' + esc(c.path) + '</td><td class="r">' + c.n + (c.rage ? ' <span class="tag rage">' + c.rage + '</span>' : '') + '</td></tr>';
+        }).join('') + '</tbody></table></div>' : '<p class="empty" style="padding:0 22px 20px">Pas encore de clics.</p>') + '</section></div>';
+  }
+
+  function reglagesTab(el, s) {
+    el.innerHTML = '<section class="panel"><div class="panel-h"><h2>Réglages</h2></div>' +
+      '<form id="rf" class="rform">' +
+      '<label class="f">Nom affiché<input type="text" name="name" value="' + esc(s.name) + '" maxlength="80"></label>' +
+      '<label class="f">Emails prévenus en plus (séparés par des virgules)<input type="text" name="notify_emails" value="' + esc(s.notify_emails || '') + '" placeholder="nihal@webminds.dz, yasmine@webminds.dz"></label>' +
+      '<label class="check"><input type="checkbox" name="notify" ' + (s.notify ? 'checked' : '') + '> Recevoir un email à chaque première ouverture</label>' +
+      '<div class="actions"><button class="btn pri" type="submit">Enregistrer</button>' +
+      '<a class="btn" href="' + esc(siteUrl(s.host, 'wm_ignore=1')) + '" target="_blank" rel="noopener">Ouvrir sans être compté</a>' +
+      '<button class="btn danger" type="button" id="del">Supprimer la maquette</button></div></form></section>';
+    document.getElementById('rf').onsubmit = function (e) {
+      e.preventDefault();
+      var f = e.target;
+      api('sites', { method: 'PATCH', body: { id: s.id, name: f.name.value, notify_emails: f.notify_emails.value, notify: f.notify.checked } })
+        .then(function () { toast('Enregistré'); }).catch(function (err) { toast(err.message); });
+    };
+    document.getElementById('del').onclick = function () {
+      if (confirm('Supprimer « ' + s.name + ' » et toutes ses visites ? Action définitive.'))
+        api('sites?id=' + s.id, { method: 'DELETE' }).then(function () { location.hash = '#/maquettes'; });
+    };
   }
 
   // ---------- heatmap ----------
@@ -433,11 +546,15 @@
     if (!token()) {
       return fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
         .then(function (r) { return r.json(); })
-        .then(function (d) { if (d.open) { setToken('open'); render(); } else login(); })
+        .then(function (d) { if (d.open) { setToken('open'); route(); } else login(); })
         .catch(login);
     }
+    route();
+  }
+  function route() {
     var h = location.hash.replace(/^#\/?/, '').split('/');
     if (h[0] === 'maquettes') return sites();
+    if (h[0] === 'install') return install();
     if (h[0] === 'm' && h[1]) return site(h[1], h[2]);
     if (h[0] === 's' && h[1]) return session(h[1]);
     return home();
