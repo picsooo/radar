@@ -1,0 +1,8 @@
+{
+  "name": "webminds-radar",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Webminds Radar - suivi des visites sur les maquettes prospects",
+  "dependencies": { "pg": "^8.13.1" }
+}
